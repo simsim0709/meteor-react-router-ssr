@@ -1,6 +1,6 @@
 Package.describe({
   name: 'reactrouter:react-router-ssr',
-  version: '3.1.5',
+  version: '3.1.51',
   summary: 'Server-side rendering for react-router and react-meteor-data rehydratating Meteor subscriptions',
   git: 'https://github.com/thereactivestack/meteor-react-router-ssr.git',
   documentation: 'README.md'
@@ -18,8 +18,8 @@ Package.onUse(function(api) {
     'ecmascript',
     'tracker',
     'minimongo@1.0.0',
-    'meteorhacks:fast-render@2.16.0',
-    'meteorhacks:inject-data@2.0.0',
+    'thelohoadmin:fast-render@2.16.1',
+    'thelohoadmin:inject-data@2.0.1',
     'tmeasday:check-npm-versions@0.2.0'
   ]);
 

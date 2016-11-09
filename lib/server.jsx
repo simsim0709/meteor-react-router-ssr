@@ -3,7 +3,7 @@ import React from 'react';
 import {
   match as ReactRouterMatch,
   RouterContext,
-  createMemoryHistory
+  createMemoryHistory,
 } from 'react-router';
 
 import SsrContext from './ssr_context';
@@ -14,17 +14,17 @@ import cookieParser from 'cookie-parser';
 import Cheerio from 'cheerio';
 
 function IsAppUrl(req) {
-  var url = req.url;
-  if(url === '/favicon.ico' || url === '/robots.txt') {
+  const url = req.url;
+  if (url === '/favicon.ico' || url === '/robots.txt') {
     return false;
   }
 
-  if(url === '/app.manifest') {
+  if (url === '/app.manifest') {
     return false;
   }
 
   // Avoid serving app HTML for declared routes such as /sockjs/.
-  if(RoutePolicy.classify(url)) {
+  if (RoutePolicy.classify(url)) {
     return false;
   }
   return true;
@@ -39,11 +39,11 @@ export default ReactRouterSSR;
 ReactRouterSSR.ssrContext = new Meteor.EnvironmentVariable();
 ReactRouterSSR.inSubscription = new Meteor.EnvironmentVariable(); // <-- needed in ssr_data.js
 
-ReactRouterSSR.LoadWebpackStats = function(stats) {
+ReactRouterSSR.LoadWebpackStats = function (stats) {
   webpackStats = stats;
 };
 
-ReactRouterSSR.Run = function(routes, clientOptions, serverOptions) {
+ReactRouterSSR.Run = function (routes, clientOptions, serverOptions) {
   // this line just patches Subscribe and find mechanisms
   patchSubscribeData(ReactRouterSSR);
 
@@ -59,10 +59,10 @@ ReactRouterSSR.Run = function(routes, clientOptions, serverOptions) {
     serverOptions.webpackStats = webpackStats;
   }
 
-  Meteor.bindEnvironment(function() {
+  Meteor.bindEnvironment(function () {
     WebApp.rawConnectHandlers.use(cookieParser());
 
-    WebApp.connectHandlers.use(Meteor.bindEnvironment(function(req, res, next) {
+    WebApp.connectHandlers.use(Meteor.bindEnvironment(function (req, res, next) {
       if (!IsAppUrl(req)) {
         next();
         return;
@@ -70,12 +70,12 @@ ReactRouterSSR.Run = function(routes, clientOptions, serverOptions) {
 
       global.__CHUNK_COLLECTOR__ = [];
 
-      var loginToken = req.cookies['meteor_login_token'];
-      var headers = req.headers;
-      var context = new FastRender._Context(loginToken, { headers });
+      const loginToken = req.cookies.meteor_login_token;
+      const headers = req.headers;
+      const context = new FastRender._Context(loginToken, { headers });
 
 
-      FastRender.frContext.withValue(context, function() {
+      FastRender.frContext.withValue(context, function () {
         let history = createMemoryHistory(req.url);
 
         if (typeof serverOptions.historyHook === 'function') {
@@ -111,11 +111,11 @@ function sendSSRHtml(clientOptions, serverOptions, req, res, next, renderProps) 
 }
 
 function patchResWrite(clientOptions, serverOptions, originalWrite, css, html) {
-  return function(data) {
-    if(typeof data === 'string' && data.indexOf('<!DOCTYPE html>') === 0) {
-      if (!serverOptions.dontMoveScripts) {
-        data = moveScripts(data);
-      }
+  return function (data) {
+    if (typeof data === 'string' && data.indexOf('<!DOCTYPE html>') === 0) {
+      // if (!serverOptions.dontMoveScripts) {
+      //   data = moveScripts(data);
+      // }
 
       if (css) {
         data = data.replace('</head>', '<style id="' + (clientOptions.styleCollectorId || 'css-style-collector-data') + '">' + css + '</style></head>');
@@ -127,11 +127,11 @@ function patchResWrite(clientOptions, serverOptions, originalWrite, css, html) {
 
       let rootElementAttributes = '';
       const attributes = clientOptions.rootElementAttributes instanceof Array ? clientOptions.rootElementAttributes : [];
-      if(attributes[0] instanceof Array) {
-        for(var i = 0; i < attributes.length; i++) {
+      if (attributes[0] instanceof Array) {
+        for (let i = 0; i < attributes.length; i++) {
           rootElementAttributes = rootElementAttributes + ' ' + attributes[i][0] + '="' + attributes[i][1] + '"';
         }
-      } else if (attributes.length > 0){
+      } else if (attributes.length > 0) {
         rootElementAttributes = ' ' + attributes[0] + '="' + attributes[1] + '"';
       }
 
@@ -151,16 +151,16 @@ function addAssetsChunks(serverOptions, data) {
   const publicPath = serverOptions.webpackStats.publicPath;
 
   if (typeof chunkNames.common !== 'undefined') {
-    var chunkSrc = (typeof chunkNames.common === 'string')?
+    var chunkSrc = (typeof chunkNames.common === 'string') ?
       chunkNames.common :
       chunkNames.common[0];
 
     data = data.replace('<head>', '<head><script type="text/javascript" src="' + publicPath + chunkSrc + '"></script>');
   }
 
-  for (var i = 0; i < global.__CHUNK_COLLECTOR__.length; ++i) {
+  for (let i = 0; i < global.__CHUNK_COLLECTOR__.length; ++i) {
     if (typeof chunkNames[global.__CHUNK_COLLECTOR__[i]] !== 'undefined') {
-      chunkSrc = (typeof chunkNames[global.__CHUNK_COLLECTOR__[i]] === 'string')?
+      chunkSrc = (typeof chunkNames[global.__CHUNK_COLLECTOR__[i]] === 'string') ?
         chunkNames[global.__CHUNK_COLLECTOR__[i]] :
         chunkNames[global.__CHUNK_COLLECTOR__[i]][0];
 
@@ -200,7 +200,7 @@ function generateSSRData(clientOptions, serverOptions, req, res, renderProps) {
 
       renderProps = {
         ...renderProps,
-        ...serverOptions.props
+        ...serverOptions.props,
       };
 
       fetchComponentData(serverOptions, renderProps);
@@ -210,9 +210,9 @@ function generateSSRData(clientOptions, serverOptions, req, res, renderProps) {
         app = clientOptions.wrapperHook(app);
       }
 
-      if (!serverOptions.disableSSR){
+      if (!serverOptions.disableSSR) {
         html = ReactDOMServer.renderToString(app);
-      } else if (serverOptions.loadingScreen){
+      } else if (serverOptions.loadingScreen) {
         html = serverOptions.loadingScreen;
       }
 
@@ -231,8 +231,9 @@ function generateSSRData(clientOptions, serverOptions, req, res, renderProps) {
       const data = context.getData();
       InjectData.pushData(res, 'fast-render-data', data);
     }
-    catch(err) {
+    catch (err) {
       console.error(new Date(), 'error while server-rendering', err.stack);
+      html = '';
     }
   });
   return { html, css };
@@ -258,7 +259,7 @@ function fetchComponentData(serverOptions, renderProps) {
 
 function moveScripts(data) {
   const $ = Cheerio.load(data, {
-    decodeEntities: false
+    decodeEntities: false,
   });
   const heads = $('head script');
   $('body').append(heads);

@@ -63,6 +63,7 @@ ReactRouterSSR.Run = function (routes, clientOptions, serverOptions) {
     WebApp.rawConnectHandlers.use(cookieParser());
 
     WebApp.connectHandlers.use(Meteor.bindEnvironment(function (req, res, next) {
+      console.time('process_speed');
       if (!IsAppUrl(req)) {
         next();
         return;
@@ -97,6 +98,8 @@ ReactRouterSSR.Run = function (routes, clientOptions, serverOptions) {
             res.write('Not found');
             res.end();
           }
+
+          console.timeEnd('process_speed');
         }));
       });
     }));
@@ -104,10 +107,11 @@ ReactRouterSSR.Run = function (routes, clientOptions, serverOptions) {
 };
 
 function sendSSRHtml(clientOptions, serverOptions, req, res, next, renderProps) {
+  console.time('render_speed');
   const { css, html } = generateSSRData(clientOptions, serverOptions, req, res, renderProps);
   res.write = patchResWrite(clientOptions, serverOptions, res.write, css, html);
-
   next();
+  console.timeEnd('render_speed');
 }
 
 function patchResWrite(clientOptions, serverOptions, originalWrite, css, html) {

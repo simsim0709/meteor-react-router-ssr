@@ -35,6 +35,7 @@ Your main `<Route />` node of your application.<br />
 - `postRender` [function(req, res)]: Executed just after the renderToString
 - `dontMoveScripts` [bool]: Keep the script inside the head tag instead of moving it at the end of the body
 - `disableSSR` [bool]: Disable server-side rendering, in case the application depends on code which doesn't work on the server.
+- `disabledSSRPaths` [array]: Disable server-side rendering on specific paths.
 - `loadingScreen` [string]: An HTML string to display while the page renders, in case the `disableSSR` option is set to true.
 
 ### Scripts

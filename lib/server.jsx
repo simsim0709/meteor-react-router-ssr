@@ -64,7 +64,24 @@ ReactRouterSSR.Run = function (routes, clientOptions, serverOptions) {
 
     WebApp.connectHandlers.use(Meteor.bindEnvironment(function (req, res, next) {
       console.time('process_speed');
+
       if (!IsAppUrl(req)) {
+        next();
+        return;
+      }
+
+      if (serverOptions.disabledSSRPaths && Array.isArray(serverOptions.disabledSSRPaths)) {
+        const hasLoc = serverOptions.disabledSSRPaths.some(loc => {
+          return req.url.startsWith(loc);
+        });
+
+        if (hasLoc) {
+          next();
+          return;
+        }
+      }
+
+      if (req.url === '/book/write?bookId=G4DWirZsu7qfwnTc6') {
         next();
         return;
       }

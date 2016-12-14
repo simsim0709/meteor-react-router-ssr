@@ -1,6 +1,6 @@
 Package.describe({
   name: 'thelohoadmin:react-router-ssr',
-  version: '3.1.6',
+  version: '3.1.7',
   summary: 'Server-side rendering for react-router and react-meteor-data rehydratating Meteor subscriptions',
   git: 'https://github.com/thereactivestack/meteor-react-router-ssr.git',
   documentation: 'README.md',
@@ -18,8 +18,8 @@ Package.onUse(function (api) {
     'ecmascript',
     'tracker',
     'minimongo@1.0.0',
-    'thelohoadmin:fast-render@2.16.2',
-    'thelohoadmin:inject-data@2.0.2',
+    'staringatlights:fast-render@2.16.3',
+    'staringatlights:inject-data@2.0.5',
     'tmeasday:check-npm-versions@0.2.0',
   ]);
 

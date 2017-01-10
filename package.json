@@ -24,7 +24,6 @@
   },
   "homepage": "https://github.com/thereactivestack/meteor-react-router-ssr#readme",
   "dependencies": {
-    "cheerio": "0.22.x",
     "cookie-parser": "1.4.x",
     "promise": "7.1.x",
     "node-cache": "4.1.x"

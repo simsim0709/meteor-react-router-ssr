@@ -11,7 +11,7 @@ import patchSubscribeData from './ssr_data';
 
 import ReactDOMServer from 'react-dom/server';
 import cookieParser from 'cookie-parser';
-import Cheerio from 'cheerio';
+// import Cheerio from 'cheerio';
 
 import NodeCache from 'node-cache';
 
@@ -157,9 +157,9 @@ function patchResWrite({
 }) {
   return function (data) {
     if (typeof data === 'string' && data.indexOf('<!DOCTYPE html>') === 0) {
-      if (!serverOptions.dontMoveScripts) {
-        data = moveScripts(data);
-      }
+      // if (!serverOptions.dontMoveScripts) {
+      //   data = moveScripts(data);
+      // }
 
       if (typeof serverOptions.htmlHook === 'function') {
         data = serverOptions.htmlHook(data);
@@ -270,16 +270,16 @@ function fetchComponentData(serverOptions, renderProps) {
   Promise.awaitAll(promises);
 }
 
-function moveScripts(data) {
-  const $ = Cheerio.load(data, {
-    decodeEntities: false,
-  });
-  const heads = $('head script');
-  $('body').append(heads);
-  $('head').html($('head').html().replace(/(^[ \t]*\n)/gm, ''));
-
-  return $.html();
-}
+// function moveScripts(data) {
+//   const $ = Cheerio.load(data, {
+//     decodeEntities: false,
+//   });
+//   const heads = $('head script');
+//   $('body').append(heads);
+//   $('head').html($('head').html().replace(/(^[ \t]*\n)/gm, ''));
+//
+//   return $.html();
+// }
 
 function isAppUrl(req) {
   const url = req.url;

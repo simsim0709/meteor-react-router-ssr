@@ -9,15 +9,19 @@ import {
 import SsrContext from './ssr_context';
 import patchSubscribeData from './ssr_data';
 
+import {
+  setCachePage,
+  getCachePage,
+  writeFromCache,
+} from './cache';
+
+// import SSRCaching from 'electrode-react-ssr-caching';
+// import ReactDOMStream from 'react-dom-stream/server';
 import ReactDOMServer from 'react-dom/server';
 import cookieParser from 'cookie-parser';
 // import Cheerio from 'cheerio';
 
-import NodeCache from 'node-cache';
-
 const ReactRouterSSR = {};
-const shouldCache = true;
-const _cache = new NodeCache();
 
 export default ReactRouterSSR;
 
@@ -33,83 +37,62 @@ ReactRouterSSR.Run = (routes, clientOptions = {}, serverOptions = {}) => {
   // this line just patches Subscribe and find mechanisms
   patchSubscribeData(ReactRouterSSR);
 
-  Meteor.bindEnvironment(() => {
-    WebApp.rawConnectHandlers.use(cookieParser());
+  WebApp.rawConnectHandlers.use(cookieParser());
 
-    WebApp.connectHandlers.use(Meteor.bindEnvironment((req, res, next) => {
-      if (!isAppUrl(req)) {
-        next();
-        return;
+  WebApp.connectHandlers.use(Meteor.bindEnvironment((req, res, next) => {
+    if (!isAppUrl(req)) {
+      next();
+      return;
+    }
+
+    if (isUrlsDisabledSSR(serverOptions.disabledSSRPaths, req.url)) {
+      next();
+      return;
+    }
+
+    const loginToken = req.cookies.meteor_login_token;
+    const headers = req.headers;
+    const context = new FastRender._Context(loginToken, { headers });
+
+    FastRender.frContext.withValue(context, () => {
+      const userId = context.userId;
+      let history = createMemoryHistory(req.url);
+
+      if (typeof serverOptions.historyHook === 'function') {
+        history = serverOptions.historyHook(history);
       }
 
-      if (isUrlsDisabledSSR(serverOptions.disabledSSRPaths, req.url)) {
-        next();
-        return;
-      }
-
-      const loginToken = req.cookies.meteor_login_token;
-      const headers = req.headers;
-      const context = new FastRender._Context(loginToken, { headers });
-
-      FastRender.frContext.withValue(context, () => {
-        const userId = Meteor.userId();
-        let history = createMemoryHistory(req.url);
-
-        if (typeof serverOptions.historyHook === 'function') {
-          history = serverOptions.historyHook(history);
+      ReactRouterMatch({
+        history,
+        routes,
+        location: req.url,
+      }, (err, redirectLocation, renderProps) => {
+        if (err) {
+          res.writeHead(500);
+          res.write(err.messages);
+          res.end();
+        } else if (redirectLocation) {
+          res.writeHead(302, { Location: redirectLocation.pathname + redirectLocation.search });
+          res.end();
+        } else if (renderProps) {
+          sendSSRHtml({
+            userId,
+            clientOptions,
+            serverOptions,
+            req,
+            res,
+            next,
+            renderProps,
+          });
+        } else {
+          res.writeHead(404);
+          res.write('Not found');
+          res.end();
         }
-
-        ReactRouterMatch({ history, routes, location: req.url }, Meteor.bindEnvironment((err, redirectLocation, renderProps) => {
-          if (err) {
-            res.writeHead(500);
-            res.write(err.messages);
-            res.end();
-          } else if (redirectLocation) {
-            res.writeHead(302, { Location: redirectLocation.pathname + redirectLocation.search });
-            res.end();
-          } else if (renderProps) {
-            sendSSRHtml({
-              userId,
-              clientOptions,
-              serverOptions,
-              req,
-              res,
-              next,
-              renderProps,
-            });
-          } else {
-            res.writeHead(404);
-            res.write('Not found');
-            res.end();
-          }
-        }));
       });
-    }));
-  })();
+    });
+  }));
 };
-
-const cacheKeys = [];
-_cache.on('set', (key, value) => {
-  console.log('SET_KEY', key);
-  cacheKeys.push(key);
-  console.log('CACHE_KEYS', cacheKeys);
-  console.log('CACHE_STATS', _cache.getStats());
-});
-
-function setCachePage(userId = 'NOT_LOGGED_IN', key, data) {
-  _cache.set(`${userId}:${key}`, data);
-}
-
-function getCachePage(userId = 'NOT_LOGGED_IN', key) {
-  console.log('userId, key', userId, key);
-  return _cache.get(`${userId}:${key}`);
-}
-
-function writeFromCache(originalWrite, html) {
-  return function () {
-    originalWrite.call(this, html);
-  };
-}
 
 function sendSSRHtml({
   userId,
@@ -121,9 +104,11 @@ function sendSSRHtml({
   renderProps,
 }) {
   const cachedPage = getCachePage(userId, req.url);
-  if (shouldCache && cachedPage) {
+  if (serverOptions.shouldCache && cachedPage) {
     console.log('RENDER_FROM_CACHE', userId, req.url);
+    console.time('RENDER_FROM_CACHE_TIME');
     res.write = writeFromCache(res.write, cachedPage);
+    console.timeEnd('RENDER_FROM_CACHE_TIME');
     // res.write(cachedPage);
   } else {
     const html = generateSSRData({
@@ -178,7 +163,9 @@ function patchResWrite({
       data = data.replace('<body>', `<body><${clientOptions.rootElementType || 'div'} id="${clientOptions.rootElement || 'react-app'}"${rootElementAttributes}>${html}</${clientOptions.rootElementType || 'div'}>`);
     }
 
-    setCachePage(userId, reqUrl, data);
+    if (serverOptions.shouldCache) {
+      setCachePage(userId, reqUrl, data);
+    }
 
     originalWrite.call(this, data);
   };
@@ -227,7 +214,16 @@ function generateSSRData({
       }
 
       if (!serverOptions.disableSSR) {
+        // SSRCaching.clearProfileData();
+
+        console.time('react renderToString');
+        // SSRCaching.enableProfiling();
+        // html = ReactDOMStream.renderToString(app);
         html = ReactDOMServer.renderToString(app);
+        // SSRCaching.enableProfiling(false);
+        console.timeEnd('react renderToString');
+        // console.log('SSRCaching.profileData', SSRCaching.profileData);
+        // console.log(JSON.stringify(SSRCaching.profileData, null, 2));
       } else if (serverOptions.loadingScreen) {
         html = serverOptions.loadingScreen;
       }

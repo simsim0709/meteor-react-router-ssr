@@ -1,13 +1,13 @@
 Package.describe({
   name: 'thelohoadmin:react-router-ssr',
-  version: '3.2.2',
+  version: '3.2.3',
   summary: 'Server-side rendering for react-router and react-meteor-data rehydratating Meteor subscriptions',
   git: 'https://github.com/thereactivestack/meteor-react-router-ssr.git',
   documentation: 'README.md',
 });
 
 Npm.depends({
-  'node-cache': '4.1.1',
+  'lru-cache': '4.0.2',
   'cookie-parser': '1.4.1',
   deepmerge: '0.2.10',
 });

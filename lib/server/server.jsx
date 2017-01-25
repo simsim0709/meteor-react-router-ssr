@@ -12,14 +12,12 @@ import patchSubscribeData from './ssr_data';
 import {
   setCachePage,
   getCachePage,
+  hasCachePage,
   writeFromCache,
 } from './cache';
 
-// import SSRCaching from 'electrode-react-ssr-caching';
-// import ReactDOMStream from 'react-dom-stream/server';
 import ReactDOMServer from 'react-dom/server';
 import cookieParser from 'cookie-parser';
-// import Cheerio from 'cheerio';
 
 const ReactRouterSSR = {};
 
@@ -37,64 +35,76 @@ ReactRouterSSR.Run = (routes, clientOptions = {}, serverOptions = {}) => {
   // this line just patches Subscribe and find mechanisms
   patchSubscribeData(ReactRouterSSR);
 
-  WebApp.rawConnectHandlers.use(cookieParser());
+  Meteor.bindEnvironment(() => {
+    WebApp.rawConnectHandlers.use(cookieParser());
 
-  WebApp.connectHandlers.use(Meteor.bindEnvironment((req, res, next) => {
-    if (!isAppUrl(req)) {
-      next();
-      return;
-    }
-
-    if (isUrlsDisabledSSR(serverOptions.disabledSSRPaths, req.url)) {
-      next();
-      return;
-    }
-
-    const loginToken = req.cookies.meteor_login_token;
-    const headers = req.headers;
-    const context = new FastRender._Context(loginToken, { headers });
-
-    FastRender.frContext.withValue(context, () => {
-      const userId = context.userId;
-      let history = createMemoryHistory(req.url);
-
-      if (typeof serverOptions.historyHook === 'function') {
-        history = serverOptions.historyHook(history);
+    WebApp.connectHandlers.use(Meteor.bindEnvironment((req, res, next) => {
+      if (!isAppUrl(req)) {
+        next();
+        return;
       }
 
-      ReactRouterMatch({
-        history,
-        routes,
-        location: req.url,
-      }, (err, redirectLocation, renderProps) => {
-        if (err) {
-          res.writeHead(500);
-          res.write(err.messages);
-          res.end();
-        } else if (redirectLocation) {
-          res.writeHead(302, { Location: redirectLocation.pathname + redirectLocation.search });
-          res.end();
-        } else if (renderProps) {
-          sendSSRHtml({
-            userId,
-            clientOptions,
-            serverOptions,
-            req,
-            res,
-            next,
-            renderProps,
-          });
-        } else {
-          res.writeHead(404);
-          res.write('Not found');
-          res.end();
-        }
+      if (isUrlsDisabledSSR(serverOptions.disabledSSRPaths, req.url)) {
+        next();
+        return;
+      }
+
+      const loginToken = undefined;
+      const headers = req.headers;
+      const context = new FastRender._Context(loginToken, { headers });
+
+      FastRender.frContext.withValue(context, () => {
+        handleRequestByReactRouter(routes, req, res, next, { clientOptions, serverOptions });
       });
-    });
-  }));
+    }));
+  })();
 };
 
-function sendSSRHtml({
+function handleRequestByReactRouter(routes, req, res, next, { clientOptions, serverOptions }) {
+  const history = createMemoryHistory(req.url);
+
+  ReactRouterMatch({
+    history,
+    routes,
+    location: req.url,
+  }, Meteor.bindEnvironment((err, redirectLocation, renderProps) => {
+    if (err) {
+      handleError(err, res);
+    } else if (redirectLocation) {
+      handleRedirect(redirectLocation, res);
+    } else if (renderProps) {
+      handleSuccess({
+        clientOptions,
+        serverOptions,
+        req,
+        res,
+        next,
+        renderProps,
+      });
+    } else {
+      handleNotFound(res);
+    }
+  }));
+}
+
+function handleError(error, res) {
+  res.writeHead(500);
+  res.write(error.message);
+  res.end();
+}
+
+function handleRedirect(redirect, res) {
+  res.writeHead(302, { Location: redirect.pathname + redirect.search });
+  res.end();
+}
+
+function handleNotFound(res) {
+  res.writeHead(404);
+  res.write('<h1>404 Not Found</h1>');
+  res.end();
+}
+
+function handleSuccess({
   userId,
   clientOptions,
   serverOptions,
@@ -103,31 +113,22 @@ function sendSSRHtml({
   next,
   renderProps,
 }) {
-  const cachedPage = getCachePage(userId, req.url);
-  if (serverOptions.shouldCache && cachedPage) {
-    console.log('RENDER_FROM_CACHE', userId, req.url);
-    console.time('RENDER_FROM_CACHE_TIME');
-    res.write = writeFromCache(res.write, cachedPage);
-    console.timeEnd('RENDER_FROM_CACHE_TIME');
-    // res.write(cachedPage);
-  } else {
-    const html = generateSSRData({
-      clientOptions,
-      serverOptions,
-      req,
-      res,
-      renderProps,
-    });
+  const html = generateSSRData({
+    clientOptions,
+    serverOptions,
+    req,
+    res,
+    renderProps,
+  });
 
-    res.write = patchResWrite({
-      userId,
-      clientOptions,
-      serverOptions,
-      html,
-      originalWrite: res.write,
-      reqUrl: req.url,
-    });
-  }
+  res.write = patchResWrite({
+    userId,
+    clientOptions,
+    serverOptions,
+    html,
+    originalWrite: res.write,
+    reqUrl: req.url,
+  });
 
   next();
 }
@@ -163,10 +164,6 @@ function patchResWrite({
       data = data.replace('<body>', `<body><${clientOptions.rootElementType || 'div'} id="${clientOptions.rootElement || 'react-app'}"${rootElementAttributes}>${html}</${clientOptions.rootElementType || 'div'}>`);
     }
 
-    if (serverOptions.shouldCache) {
-      setCachePage(userId, reqUrl, data);
-    }
-
     originalWrite.call(this, data);
   };
 }
@@ -187,6 +184,7 @@ function generateSSRData({
   ReactRouterSSR.ssrContext.withValue(ssrContext, () => {
     try {
       const frData = InjectData.getData(res, 'fast-render-data');
+      // console.log('frData', frData.collectionData);
       if (frData) {
         ssrContext.addData(frData.collectionData);
       }
@@ -206,26 +204,45 @@ function generateSSRData({
         ...serverOptions.props,
       };
 
-      fetchComponentData(serverOptions, renderProps);
-      let app = <RouterContext {...renderProps} />;
-
-      if (typeof clientOptions.wrapperHook === 'function') {
-        app = clientOptions.wrapperHook(app);
-      }
-
       if (!serverOptions.disableSSR) {
-        // SSRCaching.clearProfileData();
+        console.time('REACT_RENDER_TO_STRING');
 
-        console.time('react renderToString');
-        // SSRCaching.enableProfiling();
-        // html = ReactDOMStream.renderToString(app);
+        let app = <RouterContext {...renderProps} />;
+
+        if (typeof clientOptions.wrapperHook === 'function') {
+          app = clientOptions.wrapperHook(app);
+        }
+
+        console.log('RENDER_TO_STRING');
         html = ReactDOMServer.renderToString(app);
-        // SSRCaching.enableProfiling(false);
-        console.timeEnd('react renderToString');
-        // console.log('SSRCaching.profileData', SSRCaching.profileData);
-        // console.log(JSON.stringify(SSRCaching.profileData, null, 2));
-      } else if (serverOptions.loadingScreen) {
-        html = serverOptions.loadingScreen;
+
+        // if (hasCachePage(req.url)) {
+        //   console.log('RENDER_CACHED_PAGE');
+        //   const cachedPage = getCachePage(req.url);
+        //   html = cachedPage;
+        // } else {
+        //   let app = <RouterContext {...renderProps} />;
+        //
+        //   if (typeof clientOptions.wrapperHook === 'function') {
+        //     app = clientOptions.wrapperHook(app);
+        //   }
+        //
+        //   console.log('RENDER_TO_STRING');
+        //   html = ReactDOMServer.renderToString(app);
+        //   if (serverOptions.shouldCache) {
+        //     setCachePage(req.url, html);
+        //   }
+        // }
+
+        // let app = <RouterContext {...renderProps} />;
+        //
+        // if (typeof clientOptions.wrapperHook === 'function') {
+        //   app = clientOptions.wrapperHook(app);
+        // }
+        // console.log('RENDER_TO_STRING');
+        // html = ReactDOMServer.renderToString(app);
+
+        console.timeEnd('REACT_RENDER_TO_STRING');
       }
 
       if (typeof serverOptions.dehydrateHook === 'function') {
@@ -247,35 +264,6 @@ function generateSSRData({
 
   return html;
 }
-
-function fetchComponentData(serverOptions, renderProps) {
-  const componentsWithFetch = renderProps.components
-    .filter(component => !!component)
-    .filter(component => component.fetchData);
-
-  if (!componentsWithFetch.length) {
-    return;
-  }
-
-  if (!Package.promise) {
-    console.error("react-router-ssr: Support for fetchData() static methods on route components requires the 'promise' package.");
-    return;
-  }
-
-  const promises = serverOptions.fetchDataHook(componentsWithFetch);
-  Promise.awaitAll(promises);
-}
-
-// function moveScripts(data) {
-//   const $ = Cheerio.load(data, {
-//     decodeEntities: false,
-//   });
-//   const heads = $('head script');
-//   $('body').append(heads);
-//   $('head').html($('head').html().replace(/(^[ \t]*\n)/gm, ''));
-//
-//   return $.html();
-// }
 
 function isAppUrl(req) {
   const url = req.url;

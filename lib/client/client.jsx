@@ -10,11 +10,11 @@ const ReactRouterSSR = {
 
     let history = browserHistory;
 
-    if(typeof clientOptions.historyHook === 'function') {
+    if (typeof clientOptions.historyHook === 'function') {
       history = clientOptions.historyHook(history);
     }
 
-    Meteor.startup(function() {
+    Meteor.startup(function () {
       const rootElementName = clientOptions.rootElement || 'react-app';
       const rootElementType = clientOptions.rootElementType || 'div';
       const attributes = clientOptions.rootElementAttributes instanceof Array ? clientOptions.rootElementAttributes : [];
@@ -26,12 +26,12 @@ const ReactRouterSSR = {
         rootElement.id = rootElementName;
 
         // check if a 2-dimensional array was passed... if not, be nice and handle it anyway
-        if(attributes[0] instanceof Array) {
+        if (attributes[0] instanceof Array) {
           // set attributes
-          for(var i = 0; i < attributes.length; i++) {
+          for (let i = 0; i < attributes.length; i++) {
             rootElement.setAttribute(attributes[i][0], attributes[i][1]);
           }
-        } else if (attributes.length > 0){
+        } else if (attributes.length > 0) {
           rootElement.setAttribute(attributes[0], attributes[1]);
         }
 
@@ -39,7 +39,7 @@ const ReactRouterSSR = {
       }
 
       // Rehydrate data client side, if desired.
-      if(typeof clientOptions.rehydrateHook === 'function') {
+      if (typeof clientOptions.rehydrateHook === 'function') {
         InjectData.getData('dehydrated-initial-data', data => {
           const rehydratedData = data ? JSON.parse(data) : undefined;
           clientOptions.rehydrateHook(rehydratedData);
@@ -50,7 +50,8 @@ const ReactRouterSSR = {
         <Router
           history={history}
           children={routes}
-          {...clientOptions.props} />
+          {...clientOptions.props}
+        />
       );
 
       if (typeof clientOptions.wrapperHook === 'function') {
@@ -63,13 +64,13 @@ const ReactRouterSSR = {
         ReactDOM.render(app, rootElement);
       }
 
-      let collectorEl = document.getElementById(clientOptions.styleCollectorId || 'css-style-collector-data')
+      const collectorEl = document.getElementById(clientOptions.styleCollectorId || 'css-style-collector-data');
 
       if (collectorEl) {
         collectorEl.parentNode.removeChild(collectorEl);
       }
     });
-  }
+  },
 };
 
 export { ReactRouterSSR };

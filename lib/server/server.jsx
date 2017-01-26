@@ -19,46 +19,43 @@ import {
 import ReactDOMServer from 'react-dom/server';
 import cookieParser from 'cookie-parser';
 
-const ReactRouterSSR = {};
+const ReactRouterSSR = {
+  // creating some EnvironmentVariables that will be used later on
+  ssrContext: new Meteor.EnvironmentVariable(),
+  inSubscription: new Meteor.EnvironmentVariable(), // <-- needed in ssr_data.js
+  Run: (routes, clientOptions = {}, serverOptions = {}) => {
+    // this line just patches Subscribe and find mechanisms
+    patchSubscribeData(ReactRouterSSR);
+
+    Meteor.bindEnvironment(() => {
+      WebApp.rawConnectHandlers.use(cookieParser());
+
+      WebApp.connectHandlers.use(Meteor.bindEnvironment((req, res, next) => {
+        if (!isAppUrl(req)) {
+          return next();
+        }
+
+        if (isUrlsDisabledSSR(serverOptions.disabledSSRPaths, req.url)) {
+          return next();
+        }
+
+        const loginToken = undefined;
+        const headers = req.headers;
+        const context = new FastRender._Context(loginToken, { headers });
+
+        FastRender.frContext.withValue(context, () => {
+          handleRequestByReactRouter(routes, req, res, next, { clientOptions, serverOptions });
+        });
+      }));
+    })();
+  },
+};
 
 export default ReactRouterSSR;
-
-// creating some EnvironmentVariables that will be used later on
-ReactRouterSSR.ssrContext = new Meteor.EnvironmentVariable();
-ReactRouterSSR.inSubscription = new Meteor.EnvironmentVariable(); // <-- needed in ssr_data.js
 
 function isUrlsDisabledSSR(urls, reqUrl) {
   return urls && Array.isArray(urls) && urls.some(url => reqUrl.startsWith(url));
 }
-
-ReactRouterSSR.Run = (routes, clientOptions = {}, serverOptions = {}) => {
-  // this line just patches Subscribe and find mechanisms
-  patchSubscribeData(ReactRouterSSR);
-
-  Meteor.bindEnvironment(() => {
-    WebApp.rawConnectHandlers.use(cookieParser());
-
-    WebApp.connectHandlers.use(Meteor.bindEnvironment((req, res, next) => {
-      if (!isAppUrl(req)) {
-        next();
-        return;
-      }
-
-      if (isUrlsDisabledSSR(serverOptions.disabledSSRPaths, req.url)) {
-        next();
-        return;
-      }
-
-      const loginToken = undefined;
-      const headers = req.headers;
-      const context = new FastRender._Context(loginToken, { headers });
-
-      FastRender.frContext.withValue(context, () => {
-        handleRequestByReactRouter(routes, req, res, next, { clientOptions, serverOptions });
-      });
-    }));
-  })();
-};
 
 function handleRequestByReactRouter(routes, req, res, next, { clientOptions, serverOptions }) {
   const history = createMemoryHistory(req.url);
@@ -113,62 +110,50 @@ function handleSuccess({
   next,
   renderProps,
 }) {
-  const html = generateSSRData({
-    clientOptions,
-    serverOptions,
-    req,
-    res,
-    renderProps,
-  });
+  if (hasCachePage(req.url)) {
+    console.log('RENDER_CACHED_PAGE');
+    const originalWrite = res.write;
+    const cachedPage = getCachePage(req.url);
 
-  res.write = patchResWrite({
-    userId,
-    clientOptions,
-    serverOptions,
-    html,
-    originalWrite: res.write,
-    reqUrl: req.url,
-  });
+    res.write = function () {
+      originalWrite.call(this, cachedPage);
+    };
+  } else {
+    const html = renderHtml({
+      clientOptions,
+      serverOptions,
+      req,
+      res,
+      renderProps,
+    });
+
+    res.write = patchResWrite({
+      userId,
+      clientOptions,
+      serverOptions,
+      html,
+      originalWrite: res.write,
+      reqUrl: req.url,
+    });
+  }
 
   next();
 }
 
-function patchResWrite({
-  userId,
-  clientOptions,
-  serverOptions,
-  originalWrite,
-  html,
-  reqUrl,
-}) {
-  return function (data) {
-    if (typeof data === 'string' && data.indexOf('<!DOCTYPE html>') === 0) {
-      // if (!serverOptions.dontMoveScripts) {
-      //   data = moveScripts(data);
-      // }
+function createFrData(res, ssrContext) {
+  const frData = InjectData.getData(res, 'fast-render-data');
+  // console.log('frData', frData.collectionData);
+  if (frData) {
+    ssrContext.addData(frData.collectionData);
+  }
 
-      if (typeof serverOptions.htmlHook === 'function') {
-        data = serverOptions.htmlHook(data);
-      }
-
-      let rootElementAttributes = '';
-      const attributes = clientOptions.rootElementAttributes instanceof Array ? clientOptions.rootElementAttributes : [];
-      if (attributes[0] instanceof Array) {
-        for (let i = 0; i < attributes.length; i++) {
-          rootElementAttributes = `${rootElementAttributes} ${attributes[i][0]}="${attributes[i][1]}"`;
-        }
-      } else if (attributes.length > 0) {
-        rootElementAttributes = ` ${attributes[0]}="${attributes[1]}"`;
-      }
-
-      data = data.replace('<body>', `<body><${clientOptions.rootElementType || 'div'} id="${clientOptions.rootElement || 'react-app'}"${rootElementAttributes}>${html}</${clientOptions.rootElementType || 'div'}>`);
-    }
-
-    originalWrite.call(this, data);
-  };
+  // I'm pretty sure this could be avoided in a more elegant way?
+  const context = FastRender.frContext.get();
+  const data = context.getData();
+  InjectData.pushData(res, 'fast-render-data', data);
 }
 
-function generateSSRData({
+function renderHtml({
   clientOptions,
   serverOptions,
   req,
@@ -183,86 +168,60 @@ function generateSSRData({
 
   ReactRouterSSR.ssrContext.withValue(ssrContext, () => {
     try {
-      const frData = InjectData.getData(res, 'fast-render-data');
-      // console.log('frData', frData.collectionData);
-      if (frData) {
-        ssrContext.addData(frData.collectionData);
-      }
-      if (serverOptions.preRender) {
-        serverOptions.preRender(req, res);
-      }
-
-      // Uncomment these two lines if you want to easily trigger
-      // multiple client requests from different browsers at the same time
-
-      // console.log('sarted sleeping');
-      // Meteor._sleepForMs(5000);
-      // console.log('ended sleeping');
-
-      renderProps = {
-        ...renderProps,
-        ...serverOptions.props,
-      };
-
       if (!serverOptions.disableSSR) {
         console.time('REACT_RENDER_TO_STRING');
 
-        let app = <RouterContext {...renderProps} />;
+        const app = (
+          <RouterContext
+            {...renderProps}
+            {...serverOptions.props}
+          />
+        );
 
-        if (typeof clientOptions.wrapperHook === 'function') {
-          app = clientOptions.wrapperHook(app);
-        }
-
-        console.log('RENDER_TO_STRING');
         html = ReactDOMServer.renderToString(app);
 
-        // if (hasCachePage(req.url)) {
-        //   console.log('RENDER_CACHED_PAGE');
-        //   const cachedPage = getCachePage(req.url);
-        //   html = cachedPage;
-        // } else {
-        //   let app = <RouterContext {...renderProps} />;
-        //
-        //   if (typeof clientOptions.wrapperHook === 'function') {
-        //     app = clientOptions.wrapperHook(app);
-        //   }
-        //
-        //   console.log('RENDER_TO_STRING');
-        //   html = ReactDOMServer.renderToString(app);
-        //   if (serverOptions.shouldCache) {
-        //     setCachePage(req.url, html);
-        //   }
-        // }
-
-        // let app = <RouterContext {...renderProps} />;
-        //
-        // if (typeof clientOptions.wrapperHook === 'function') {
-        //   app = clientOptions.wrapperHook(app);
-        // }
-        // console.log('RENDER_TO_STRING');
-        // html = ReactDOMServer.renderToString(app);
-
         console.timeEnd('REACT_RENDER_TO_STRING');
-      }
 
-      if (typeof serverOptions.dehydrateHook === 'function') {
-        InjectData.pushData(res, 'dehydrated-initial-data', JSON.stringify(serverOptions.dehydrateHook()));
+        createFrData(res, ssrContext);
       }
-
-      if (serverOptions.postRender) {
-        serverOptions.postRender(req, res);
-      }
-
-      // I'm pretty sure this could be avoided in a more elegant way?
-      const context = FastRender.frContext.get();
-      const data = context.getData();
-      InjectData.pushData(res, 'fast-render-data', data);
-    } catch (err) {
-      console.error(new Date(), 'error while server-rendering', err.stack);
+    } catch (ex) {
+      console.error(`Error when doing SSR. path:${req.url}: ${ex.message}`);
+      console.error(ex.stack);
     }
   });
 
   return html;
+}
+
+function patchResWrite({
+  userId,
+  clientOptions,
+  serverOptions,
+  originalWrite,
+  html,
+  reqUrl,
+}) {
+  return function (data) {
+    if (typeof data === 'string' && data.indexOf('<!DOCTYPE html>') === 0) {
+      let rootElementAttributes = '';
+      const attributes = clientOptions.rootElementAttributes instanceof Array ? clientOptions.rootElementAttributes : [];
+      if (attributes[0] instanceof Array) {
+        for (let i = 0; i < attributes.length; i++) {
+          rootElementAttributes = `${rootElementAttributes} ${attributes[i][0]}="${attributes[i][1]}"`;
+        }
+      } else if (attributes.length > 0) {
+        rootElementAttributes = ` ${attributes[0]}="${attributes[1]}"`;
+      }
+
+      data = data.replace('<body>', `<body><${clientOptions.rootElementType || 'div'} id="${clientOptions.rootElement || 'react-app'}"${rootElementAttributes}>${html}</${clientOptions.rootElementType || 'div'}>`);
+    }
+
+    if (serverOptions.shouldCache) {
+      setCachePage(reqUrl, data);
+    }
+
+    originalWrite.call(this, data);
+  };
 }
 
 function isAppUrl(req) {

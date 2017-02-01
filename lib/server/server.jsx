@@ -132,7 +132,9 @@ class ReactRouterSSR {
       }
     });
 
-    setCachePage(this.req.url, { html, frData });
+    if (this.serverOptions.shouldCache) {
+      setCachePage(this.req.url, { html, frData });
+    }
 
     return { html, frData };
   }
@@ -154,10 +156,6 @@ class ReactRouterSSR {
         }
 
         data = data.replace('<body>', `<body><${self.clientOptions.rootElementType || 'div'} id="${self.clientOptions.rootElement || 'react-app'}"${rootElementAttributes}>${html}</${self.clientOptions.rootElementType || 'div'}>`);
-      }
-
-      if (self.serverOptions.shouldCache) {
-        // setCachePage(reqUrl, data);
       }
 
       originalWrite.call(this, data);

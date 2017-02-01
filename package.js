@@ -1,6 +1,6 @@
 Package.describe({
   name: 'thelohoadmin:react-router-ssr',
-  version: '3.2.4_1',
+  version: '3.2.4_2',
   summary: 'Server-side rendering for react-router and react-meteor-data rehydratating Meteor subscriptions',
   git: 'https://github.com/thereactivestack/meteor-react-router-ssr.git',
   documentation: 'README.md',

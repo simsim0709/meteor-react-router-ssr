@@ -29,12 +29,12 @@ class ReactRouterSSR {
     this.ssrContext = new Meteor.EnvironmentVariable();
     this.inSubscription = new Meteor.EnvironmentVariable();
     this.Run = this.Run.bind(this);
+
+    // this line just patches Subscribe and find mechanisms
+    patchSubscribeData(this);
   }
 
   Run(routes, clientOptions = {}, serverOptions = {}) {
-    // this line just patches Subscribe and find mechanisms
-    patchSubscribeData(this);
-
     Meteor.bindEnvironment(() => {
       // WebApp.rawConnectHandlers.use(cookieParser());
 

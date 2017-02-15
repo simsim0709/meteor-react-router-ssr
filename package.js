@@ -1,6 +1,6 @@
 Package.describe({
   name: 'thelohoadmin:react-router-ssr',
-  version: '3.2.4_3',
+  version: '3.2.5',
   summary: 'Server-side rendering for react-router and react-meteor-data rehydratating Meteor subscriptions',
   git: 'https://github.com/simsim0709/meteor-react-router-ssr.git',
   documentation: 'README.md',
@@ -39,4 +39,5 @@ Package.onUse(function (api) {
   api.export('ReactRouterSSR');
   api.mainModule('lib/client/react-router-ssr.js', 'client');
   api.mainModule('lib/server/react-router-ssr.js', 'server');
+  api.add_files(['lib/server/cache.js'], 'server');
 });

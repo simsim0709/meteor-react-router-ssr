@@ -145,6 +145,10 @@ class ReactRouterSSR {
 
     return function (data) {
       if (typeof data === 'string' && data.indexOf('<!DOCTYPE html>') === 0) {
+        if (typeof self.serverOptions.htmlHook === 'function') {
+          data = self.serverOptions.htmlHook(data);
+        }
+
         let rootElementAttributes = '';
         const attributes = self.clientOptions.rootElementAttributes instanceof Array ? self.clientOptions.rootElementAttributes : [];
         if (attributes[0] instanceof Array) {

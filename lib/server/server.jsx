@@ -116,12 +116,16 @@ class ReactRouterSSR {
     this.ssrContext.withValue(this.ssrContextData, () => {
       try {
         if (!this.serverOptions.disableSSR) {
-          const app = (
+          let app = (
             <RouterContext
               {...this.renderProps}
               {...this.serverOptions.props}
             />
           );
+
+          if (typeof this.clientOptions.wrapperHook === 'function') {
+            app = this.clientOptions.wrapperHook(app);
+          }
 
           html = ReactDOMServer.renderToString(app);
           frData = this.createFrData();

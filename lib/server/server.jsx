@@ -1,10 +1,8 @@
+import 'isomorphic-fetch';
+
 import React from 'react';
 
-import {
-  match as ReactRouterMatch,
-  RouterContext,
-  createMemoryHistory,
-} from 'react-router';
+import { match as ReactRouterMatch, RouterContext, createMemoryHistory } from 'react-router';
 
 import ReactDOMServer from 'react-dom/server';
 // import cookieParser from 'cookie-parser';
@@ -15,11 +13,28 @@ import { InjectData } from 'meteor/staringatlights:inject-data';
 import SsrContextData from './ssr_context';
 import patchSubscribeData from './ssr_data';
 
-import {
-  setCachePage,
-  getCachePage,
-  hasCachePage,
-} from './cache';
+import { setCachePage, getCachePage, hasCachePage } from './cache';
+
+import { renderToStringWithData } from 'react-apollo';
+import { onPageLoad } from 'meteor/server-render';
+
+onPageLoad(async sink => {
+  try {
+    const data = await reactRouterSsr.handleRequestByReactRouter(sink.request);
+
+    if (data.dehydrate) {
+      sink.appendToHead(
+        `<script>window.__APOLLO_STATE__=${JSON.stringify({
+          apollo: data.dehydrate,
+        })}</script>`
+      );
+    }
+
+    sink.renderIntoElementById('react-app', data.html);
+  } catch (ex) {
+    throw new Meteor.Error(500, ex);
+  }
+});
 
 class ReactRouterSSR {
   constructor() {
@@ -29,63 +44,64 @@ class ReactRouterSSR {
     this.ssrContext = new Meteor.EnvironmentVariable();
     this.inSubscription = new Meteor.EnvironmentVariable();
     this.Run = this.Run.bind(this);
+    this.req = undefined;
+    this.routes = undefined;
+    this.clientOptions = undefined;
+    this.serverOptions = undefined;
+    this.renderProps = undefined;
 
     // this line just patches Subscribe and find mechanisms
     patchSubscribeData(this);
   }
 
   Run(routes, clientOptions = {}, serverOptions = {}) {
-    Meteor.bindEnvironment(() => {
-      // WebApp.rawConnectHandlers.use(cookieParser());
-
-      WebApp.connectHandlers.use(Meteor.bindEnvironment((req, res, next) => {
-        this.req = req;
-        this.res = res;
-        this.next = next;
-        this.routes = routes;
-        this.clientOptions = clientOptions;
-        this.serverOptions = serverOptions;
-
-        if (!isAppUrl(req)) {
-          return next();
-        }
-
-        if (isUrlsDisabledSSR(serverOptions.disabledSSRPaths, req.url)) {
-          return next();
-        }
-
-        this.handleRequestByReactRouter();
-      }));
-    })();
+    this.routes = routes;
+    this.clientOptions = clientOptions;
+    this.serverOptions = serverOptions;
   }
 
-  handleRequestByReactRouter() {
-    // const loginToken = this.req.cookies.meteor_login_token;
-    const loginToken = undefined;
-    const headers = this.req.headers;
-    const context = new FastRender._Context(loginToken, { headers });
+  handleRequestByReactRouter(req) {
+    this.req = req;
 
-    FastRender.frContext.withValue(context, () => {
-      const history = createMemoryHistory(this.req.url);
+    return new Promise((resolve, reject) => {
+      if (!isAppUrl(req)) {
+        return reject(false);
+      }
 
-      ReactRouterMatch({
-        history,
-        routes: this.routes,
-        location: this.req.url,
-      }, Meteor.bindEnvironment((err, redirectLocation, renderProps) => {
-        console.time('ReactRouterSSR Run');
-        if (err) {
-          handleError(err, this.res);
-        } else if (redirectLocation) {
-          handleRedirect(redirectLocation, this.res);
-        } else if (renderProps) {
-          this.renderProps = renderProps;
-          this.handleSuccess();
-        } else {
-          handleNotFound(this.res);
-        }
-        console.timeEnd('ReactRouterSSR Run');
-      }));
+      if (isUrlsDisabledSSR(this.serverOptions.disabledSSRPaths, req.url)) {
+        return reject(false);
+      }
+
+      // const loginToken = this.req.cookies.meteor_login_token;
+      const loginToken = undefined;
+      // const headers = this.req.headers;
+      const context = new FastRender._Context(loginToken, {});
+
+      FastRender.frContext.withValue(context, () => {
+        const history = createMemoryHistory(this.req.url.pathname);
+
+        ReactRouterMatch(
+          {
+            history,
+            routes: this.routes,
+            location: this.req.url.pathname,
+          },
+          (err, redirectLocation, renderProps) => {
+            console.time('ReactRouterSSR Run');
+            if (err) {
+              return reject(err);
+            } else if (redirectLocation) {
+              return resolve(handleRedirect(redirectLocation));
+            } else if (renderProps) {
+              this.renderProps = renderProps;
+              return resolve(this.handleSuccess());
+            } else {
+              resolve(handleNotFound());
+            }
+            console.timeEnd('ReactRouterSSR Run');
+          }
+        );
+      });
     });
   }
 
@@ -93,81 +109,54 @@ class ReactRouterSSR {
     let html;
     let frData;
 
-    if (hasCachePage(this.req.url)) {
-      const cachedPage = getCachePage(this.req.url);
+    if (hasCachePage(this.req.url.pathname)) {
+      const cachedPage = getCachePage(this.req.url.pathname);
       html = cachedPage.html;
       frData = cachedPage.frData;
     } else {
-      const rendered = this.renderHtml();
-      html = rendered.html;
-      frData = rendered.frData;
+      return this.renderHtml();
     }
-
-    InjectData.pushData(this.res, 'fast-render-data', frData);
-
-    this.res.write = this.patchResWrite(html);
-    this.next();
   }
 
   renderHtml() {
     let html;
     let frData;
+    let dehydrate;
 
-    this.ssrContext.withValue(this.ssrContextData, () => {
-      try {
-        if (!this.serverOptions.disableSSR) {
-          let app = (
-            <RouterContext
-              {...this.renderProps}
-              {...this.serverOptions.props}
-            />
-          );
+    return new Promise((resolve, reject) => {
+      this.ssrContext.withValue(this.ssrContextData, () => {
+        try {
+          if (!this.serverOptions.disableSSR) {
+            let app = <RouterContext {...this.renderProps} {...this.serverOptions.props} />;
 
-          if (typeof this.clientOptions.wrapperHook === 'function') {
-            app = this.clientOptions.wrapperHook(app);
+            if (typeof this.clientOptions.wrapperHook === 'function') {
+              app = this.clientOptions.wrapperHook(app);
+            }
+
+            if (
+              this.serverOptions.dehydrateHook &&
+              typeof this.serverOptions.dehydrateHook === 'function'
+            ) {
+              dehydrate = this.serverOptions.dehydrateHook();
+            }
+
+            renderToStringWithData(app)
+              .then(content => {
+                resolve({ html: content, frData, dehydrate });
+              })
+              .catch(error => reject(error));
           }
-
-          html = ReactDOMServer.renderToString(app);
-          frData = this.createFrData();
+        } catch (ex) {
+          console.error(`Error when doing SSR. path:${this.req.url}: ${ex.message}`);
+          console.error(ex.stack);
+          reject(ex);
         }
-      } catch (ex) {
-        console.error(`Error when doing SSR. path:${this.req.url}: ${ex.message}`);
-        console.error(ex.stack);
-      }
+      });
     });
 
-    if (this.serverOptions.shouldCache) {
-      setCachePage(this.req.url, { html, frData });
-    }
-
-    return { html, frData };
-  }
-
-  patchResWrite(html) {
-    const self = this;
-    const originalWrite = this.res.write;
-
-    return function (data) {
-      if (typeof data === 'string' && data.indexOf('<!DOCTYPE html>') === 0) {
-        if (typeof self.serverOptions.htmlHook === 'function') {
-          data = self.serverOptions.htmlHook(data);
-        }
-
-        let rootElementAttributes = '';
-        const attributes = self.clientOptions.rootElementAttributes instanceof Array ? self.clientOptions.rootElementAttributes : [];
-        if (attributes[0] instanceof Array) {
-          for (let i = 0; i < attributes.length; i++) {
-            rootElementAttributes = `${rootElementAttributes} ${attributes[i][0]}="${attributes[i][1]}"`;
-          }
-        } else if (attributes.length > 0) {
-          rootElementAttributes = ` ${attributes[0]}="${attributes[1]}"`;
-        }
-
-        data = data.replace('<body>', `<body><${self.clientOptions.rootElementType || 'div'} id="${self.clientOptions.rootElement || 'react-app'}"${rootElementAttributes}>${html}</${self.clientOptions.rootElementType || 'div'}>`);
-      }
-
-      originalWrite.call(this, data);
-    };
+    // if (this.serverOptions.shouldCache) {
+    //   setCachePage(this.req.url, { html, frData });
+    // }
   }
 
   createFrData() {
@@ -190,7 +179,7 @@ const reactRouterSsr = new ReactRouterSSR();
 export default reactRouterSsr;
 
 function isUrlsDisabledSSR(urls, reqUrl) {
-  return urls && Array.isArray(urls) && urls.some(url => reqUrl.startsWith(url));
+  return urls && Array.isArray(urls) && urls.some(url => reqUrl.pathname.startsWith(url));
 }
 
 function handleError(error, res) {
@@ -211,12 +200,19 @@ function handleNotFound(res) {
 }
 
 function isAppUrl(req) {
-  const url = req.url;
-  if (url === '/favicon.ico' || url === '/robots.txt') {
-    return false;
-  }
+  const url = req.url.pathname;
 
-  if (url === '/app.manifest') {
+  if (
+    url &&
+    [
+      '/favicon.ico',
+      '/robots.txt',
+      '/app.manifest',
+      '/graphql',
+      '/graphiql',
+      '/service-worker.js',
+    ].some(item => item === url)
+  ) {
     return false;
   }
 

@@ -17,7 +17,10 @@ const ReactRouterSSR = {
     Meteor.startup(function () {
       const rootElementName = clientOptions.rootElement || 'react-app';
       const rootElementType = clientOptions.rootElementType || 'div';
-      const attributes = clientOptions.rootElementAttributes instanceof Array ? clientOptions.rootElementAttributes : [];
+      const attributes =
+        clientOptions.rootElementAttributes instanceof Array
+          ? clientOptions.rootElementAttributes
+          : [];
       let rootElement = document.getElementById(rootElementName);
 
       // In case the root element doesn't exist, let's create it
@@ -40,19 +43,14 @@ const ReactRouterSSR = {
 
       // Rehydrate data client side, if desired.
       if (typeof clientOptions.rehydrateHook === 'function') {
-        InjectData.getData('dehydrated-initial-data', data => {
-          const rehydratedData = data ? JSON.parse(data) : undefined;
-          clientOptions.rehydrateHook(rehydratedData);
-        });
+        clientOptions.rehydrateHook();
+        // InjectData.getData('dehydrated-initial-data', data => {
+        //   const rehydratedData = data ? JSON.parse(data) : undefined;
+        //   clientOptions.rehydrateHook(rehydratedData);
+        // });
       }
 
-      let app = (
-        <Router
-          history={history}
-          children={routes}
-          {...clientOptions.props}
-        />
-      );
+      let app = <Router history={history} children={routes} {...clientOptions.props} />;
 
       if (typeof clientOptions.wrapperHook === 'function') {
         app = clientOptions.wrapperHook(app);
@@ -64,7 +62,9 @@ const ReactRouterSSR = {
         ReactDOM.render(app, rootElement);
       }
 
-      const collectorEl = document.getElementById(clientOptions.styleCollectorId || 'css-style-collector-data');
+      const collectorEl = document.getElementById(
+        clientOptions.styleCollectorId || 'css-style-collector-data'
+      );
 
       if (collectorEl) {
         collectorEl.parentNode.removeChild(collectorEl);

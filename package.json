@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/thereactivestack/meteor-react-router-ssr#readme",
   "dependencies": {
+    "isomorphic-fetch": "^2.2.1",
     "lru-cache": "4.0.2"
   },
   "peerDependencies": {
